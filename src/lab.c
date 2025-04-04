@@ -32,33 +32,123 @@
 size_t btok(size_t bytes)
 {
     //DO NOT use math.pow
+    size_t k = 0;
+    size_t size = 1;
+    
+    while (size < bytes) {
+        size *= 2;
+        k++;
+    }
+    
+    return k;
 }
 
 struct avail *buddy_calc(struct buddy_pool *pool, struct avail *buddy)
 {
-
+    size_t k = buddy->kval;
+    size_t block_size = (1UL << k); // 2^k
+    uintptr_t buddy_addr = (uintptr_t)buddy;
+    uintptr_t base_addr = (uintptr_t)pool->base;
+    
+    // Calculate the offset from the base
+    uintptr_t offset = buddy_addr - base_addr;
+    
+    // Calculate the buddy's offset using XOR with 2^k (formula from the text)
+    uintptr_t buddy_offset = offset ^ block_size;
+    
+    // Return the buddy's address
+    return (struct avail *)(base_addr + buddy_offset);
 }
 
 void *buddy_malloc(struct buddy_pool *pool, size_t size)
 {
-
-    //get the kval for the requested size with enough room for the tag and kval fields
-
-    //R1 Find a block
-
-    //There was not enough memory to satisfy the request thus we need to set error and return NULL
-
-    //R2 Remove from list;
-
-    //R3 Split required?
-
-    //R4 Split the block
-
+    // Get the kval for the requested size with enough room for the tag and kval fields
+    size_t req_size = size + sizeof(struct avail);
+    size_t k = btok(req_size);
+    
+    if (k < MIN_K)
+        k = MIN_K;
+    
+    // R1 Find a block
+    size_t j = k;
+    while (j <= pool->kval_m && pool->avail[j].next == &pool->avail[j]) {
+        j++;  // Move to next size if this list is empty
+    }
+    
+    // There was not enough memory to satisfy the request thus we need to set error and return NULL
+    if (j > pool->kval_m) {
+        errno = ENOMEM;
+        return NULL;
+    }
+    
+    // R2 Remove from list
+    struct avail *block = pool->avail[j].next;
+    pool->avail[j].next = block->next;
+    block->next->prev = &pool->avail[j];
+    block->tag = BLOCK_RESERVED;
+    
+    // R3 Split required?
+    while (j > k) {
+        // R4 Split the block
+        j--;
+        size_t buddy_size = (1UL << j);
+        struct avail *buddy = (struct avail *)((char *)block + buddy_size);
+        
+        // Initialize buddy block
+        buddy->tag = BLOCK_AVAIL;
+        buddy->kval = j;
+        
+        // Add buddy to appropriate availability list
+        buddy->next = pool->avail[j].next;
+        buddy->prev = &pool->avail[j];
+        pool->avail[j].next->prev = buddy;
+        pool->avail[j].next = buddy;
+    }
+    
+    // Return pointer to user memory (after the header)
+    return (void *)((char *)block + sizeof(struct avail));
 }
 
 void buddy_free(struct buddy_pool *pool, void *ptr)
 {
-
+    if (!ptr) return;  // Handle NULL pointer
+    
+    // Get block header by subtracting header size from user pointer
+    struct avail *block = (struct avail *)((char *)ptr - sizeof(struct avail));
+    size_t k = block->kval;
+    
+    // S1 Is buddy available?
+    while (k < pool->kval_m) {
+        struct avail *buddy = buddy_calc(pool, block);
+        
+        // Check if buddy is available and has the same size
+        if (buddy->tag != BLOCK_AVAIL || buddy->kval != k) {
+            break;  // Cannot combine with buddy
+        }
+        
+        // S2 Combine with buddy
+        // Remove buddy from its availability list
+        buddy->prev->next = buddy->next;
+        buddy->next->prev = buddy->prev;
+        
+        // Determine which block is the "lower" one that will represent the merged block
+        if (buddy < block) {
+            block = buddy;
+        }
+        
+        // Increase the size
+        k++;
+        block->kval = k;
+    }
+    
+    // S3 Put on list
+    block->tag = BLOCK_AVAIL;
+    
+    // Add block to the appropriate availability list
+    block->next = pool->avail[k].next;
+    block->prev = &pool->avail[k];
+    pool->avail[k].next->prev = block;
+    pool->avail[k].next = block;
 }
 
 /**
