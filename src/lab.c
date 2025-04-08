@@ -16,6 +16,10 @@
 
 #include "lab.h"
 
+#define TAG_RESERVED 0
+#define TAG_AVAILABLE 1
+#define TAG_UNUSED BLOCK_UNUSED  // For backward compatibility
+
 #define handle_error_and_die(msg) \
     do                            \
     {                             \
@@ -134,7 +138,7 @@ void buddy_free(struct buddy_pool *pool, void *ptr)
     if (!ptr) return;  // Handle NULL pointer
     
     // Get block header from user pointer
-    struct avail *L = (struct avail *)((char *)ptr - sizeof(struct avail));
+    struct avail *L = ((struct avail *)ptr) - 1;
     
     // Validate that this is a reserved block
     if (L->tag != 0) {  // TAG(P) = 0 for reserved blocks
