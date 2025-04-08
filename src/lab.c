@@ -52,11 +52,11 @@ size_t btok(size_t bytes)
  * @param block The block to find the buddy of
  * @return struct avail* Pointer to the buddy block
  */
-struct avail *buddy_calc(struct buddy_pool *pool, struct avail *block)
+struct avail *buddy_calc(struct buddy_pool *pool, struct avail *buddy)
 {
-    size_t k = block->kval;
+    size_t k = buddy->kval;
     size_t block_size = (1UL << k); // 2^k
-    uintptr_t block_addr = (uintptr_t)block;
+    uintptr_t block_addr = (uintptr_t)buddy;
     uintptr_t base_addr = (uintptr_t)pool->base;
     
     // Calculate the offset from the base
@@ -193,41 +193,7 @@ void *buddy_realloc(struct buddy_pool *pool, void *ptr, size_t size)
 {
     // Required for Grad Students
     // Optional for Undergrad Students
-    if (!ptr) {
-        return buddy_malloc(pool, size);
-    }
-    
-    if (size == 0) {
-        buddy_free(pool, ptr);
-        return NULL;
-    }
-    
-    // Get the original block and its size
-    struct avail *block = (struct avail *)((char *)ptr - sizeof(struct avail));
-    size_t old_k = block->kval;
-    size_t old_size = (1UL << old_k) - sizeof(struct avail);
-    
-    // Calculate required k-value for new size
-    size_t req_size = size + sizeof(struct avail);
-    size_t new_k = btok(req_size);
-    if (new_k < MIN_K) new_k = MIN_K;
-    
-    // If new size fits within current block, just return the original pointer
-    if (new_k <= old_k) {
-        return ptr;
-    }
-    
-    // Allocate new larger block
-    void *new_ptr = buddy_malloc(pool, size);
-    if (!new_ptr) {
-        return NULL;  // Failed to allocate
-    }
-    
-    // Copy old data to new block and free old block
-    memcpy(new_ptr, ptr, old_size);
-    buddy_free(pool, ptr);
-    
-    return new_ptr;
+  
 }
 
 void buddy_init(struct buddy_pool *pool, size_t size)
